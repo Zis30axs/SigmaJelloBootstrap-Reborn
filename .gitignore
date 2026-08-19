@@ -1,0 +1,27 @@
+# Java
+*.class
+*.jar
+*.war
+*.ear
+
+# Build
+/target/
+/build/
+/out/
+.gradle/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Historical/private reference binaries
+/reference/*.jar
+/reference/*.class
