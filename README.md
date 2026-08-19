@@ -29,4 +29,4 @@ See [`docs/reference.md`](docs/reference.md).
 
 ## License
 
-New source code in this repository is licensed under the MIT License. Historical Sigma names, logos, artwork, binaries, and other third-party assets are not relicensed by this project. See [`NOTICE.md`](NOTICE.md).
+New source code in this repository is licensed under the GNU GPL v3. Historical Sigma names, logos, artwork, binaries, and other third-party assets are not relicensed by this project. See [`NOTICE.md`](NOTICE.md).
