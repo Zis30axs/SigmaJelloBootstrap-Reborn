@@ -28,26 +28,51 @@ public final class JavaRuntimeResolver {
         }
 
         throw new IOException(
-                "Java " + requiredMajor + " was not found. Install a JDK/JRE " + requiredMajor
-                        + " or set JAVA_HOME_" + requiredMajor + "."
+                "Java " + requiredMajor + " was not found. Select one in Settings or enable automatic Java download."
         );
+    }
+
+    public List<File> findAll(int requiredMajor) {
+        Set<File> candidates = new LinkedHashSet<File>();
+        addJavaHome(candidates, System.getenv("JAVA_HOME_" + requiredMajor));
+        addJavaHome(candidates, System.getenv("JAVA_HOME_" + requiredMajor + "_X64"));
+        addJavaHome(candidates, System.getenv("JAVA_HOME"));
+        addJavaHome(candidates, System.getProperty("java.home"));
+        addWindowsCandidates(candidates, requiredMajor);
+        addUnixCandidates(candidates, requiredMajor);
+
+        List<File> result = new ArrayList<File>();
+        for (File candidate : candidates) {
+            if (candidate.isFile() && majorVersion(candidate) == requiredMajor) {
+                result.add(candidate);
+            }
+        }
+        return result;
     }
 
     private static void addJavaHome(Set<File> candidates, String home) {
         if (home == null || home.trim().isEmpty()) {
             return;
         }
-        candidates.add(new File(new File(home), "bin" + File.separator + javaExecutableName()));
+        File bin = new File(home, "bin");
+        File javaw = new File(bin, isWindows() ? "javaw.exe" : "java");
+        File java = new File(bin, isWindows() ? "java.exe" : "java");
+        candidates.add(javaw);
+        candidates.add(java);
     }
 
     private static void addWindowsCandidates(Set<File> candidates, int major) {
         String programFiles = System.getenv("ProgramFiles");
-        if (programFiles == null) {
-            return;
+        String programFilesX86 = System.getenv("ProgramFiles(x86)");
+        if (programFiles != null) {
+            scanJdkDirectory(candidates, new File(programFiles, "Eclipse Adoptium"), major);
+            scanJdkDirectory(candidates, new File(programFiles, "Java"), major);
+            scanJdkDirectory(candidates, new File(programFiles, "Microsoft"), major);
+            scanJdkDirectory(candidates, new File(programFiles, "Zulu"), major);
         }
-        scanJdkDirectory(candidates, new File(programFiles, "Eclipse Adoptium"), major);
-        scanJdkDirectory(candidates, new File(programFiles, "Java"), major);
-        scanJdkDirectory(candidates, new File(programFiles, "Microsoft"), major);
+        if (programFilesX86 != null) {
+            scanJdkDirectory(candidates, new File(programFilesX86, "Java"), major);
+        }
     }
 
     private static void addUnixCandidates(Set<File> candidates, int major) {
@@ -74,7 +99,7 @@ public final class JavaRuntimeResolver {
         }
     }
 
-    private static int majorVersion(File javaExecutable) {
+    public int majorVersion(File javaExecutable) {
         Process process = null;
         try {
             process = new ProcessBuilder(javaExecutable.getAbsolutePath(), "-version")
@@ -118,7 +143,7 @@ public final class JavaRuntimeResolver {
         }
     }
 
-    private static String javaExecutableName() {
-        return System.getProperty("os.name", "").toLowerCase().contains("win") ? "java.exe" : "java";
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase().contains("win");
     }
 }
