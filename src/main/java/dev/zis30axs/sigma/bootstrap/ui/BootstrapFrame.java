@@ -4,39 +4,50 @@ import dev.zis30axs.sigma.bootstrap.LauncherTarget;
 import dev.zis30axs.sigma.bootstrap.build.BuildInfo;
 import dev.zis30axs.sigma.bootstrap.build.BuildInstaller;
 import dev.zis30axs.sigma.bootstrap.build.GitHubBuildService;
+import dev.zis30axs.sigma.bootstrap.config.LauncherSettings;
 import dev.zis30axs.sigma.bootstrap.runtime.ClientLauncher;
 
+import javax.imageio.ImageIO;
+import javax.swing.ImageIcon;
 import javax.swing.JComboBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.WindowConstants;
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.Image;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
+import java.io.IOException;
+import java.net.URL;
 import java.util.List;
 
 /** Historical-style 580x150 Sigma bootstrap shell. */
 public final class BootstrapFrame extends JFrame {
     private final JPanel content = new JPanel(null);
-    private final JLabel logo = new JLabel("SIGMA  PROD");
+    private final JLabel logo = new JLabel();
     private final JLabel status = new JLabel("Checking builds...", SwingConstants.RIGHT);
     private final JComboBox<LauncherTarget> targetBox = new JComboBox<LauncherTarget>(LauncherTarget.values());
+    private final JelloButton settingsButton = new JelloButton("Settings");
     private final JelloButton historyButton = new JelloButton("History");
     private final JelloButton playButton = new JelloButton("Play");
     private final JelloProgressBar progressBar = new JelloProgressBar();
 
     private final GitHubBuildService buildService = new GitHubBuildService();
     private final BuildInstaller installer = new BuildInstaller();
-    private final ClientLauncher launcher = new ClientLauncher();
+    private final LauncherSettings settings = new LauncherSettings();
+    private final ClientLauncher launcher = new ClientLauncher(settings);
 
     private volatile List<BuildInfo> availableBuilds;
     private volatile BuildInfo selectedBuild;
+    private volatile Process runningProcess;
+    private volatile boolean preparingLaunch;
 
     public BootstrapFrame() {
         super("Sigma Jello Bootstrap");
@@ -48,26 +59,35 @@ public final class BootstrapFrame extends JFrame {
         content.setBackground(Color.BLACK);
         setContentPane(content);
 
-        logo.setForeground(Color.WHITE);
-        logo.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 27));
-        logo.setBounds(26, 22, 221, 42);
+        configureLogo();
         content.add(logo);
 
         status.setForeground(Color.WHITE);
         status.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-        status.setBounds(302, 44, 250, 20);
+        status.setBounds(352, 44, 200, 20);
         content.add(status);
 
         targetBox.setBounds(26, 80, 195, 22);
         targetBox.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent event) {
-                refreshBuilds();
+                if (!isClientRunning() && !preparingLaunch) {
+                    refreshBuilds();
+                }
             }
         });
         content.add(targetBox);
 
-        historyButton.setBounds(230, 75, 115, 30);
+        settingsButton.setBounds(230, 75, 90, 30);
+        settingsButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                new SettingsDialog(BootstrapFrame.this, settings, launcher.getJavaRuntimeManager()).setVisible(true);
+            }
+        });
+        content.add(settingsButton);
+
+        historyButton.setBounds(329, 75, 90, 30);
         historyButton.setEnabled(false);
         historyButton.addActionListener(new ActionListener() {
             @Override
@@ -77,7 +97,7 @@ public final class BootstrapFrame extends JFrame {
         });
         content.add(historyButton);
 
-        playButton.setBounds(360, 75, 195, 30);
+        playButton.setBounds(428, 75, 127, 30);
         playButton.setEnabled(false);
         playButton.addActionListener(new ActionListener() {
             @Override
@@ -87,11 +107,41 @@ public final class BootstrapFrame extends JFrame {
         });
         content.add(playButton);
 
-        progressBar.setBounds(26, 82, 529, 12);
+        progressBar.setBounds(26, 80, 529, 25);
         progressBar.setVisible(false);
         content.add(progressBar);
 
         refreshBuilds();
+    }
+
+    private void configureLogo() {
+        logo.setBounds(26, 28, 221, 35);
+        Image image = loadLogoImage();
+        if (image != null) {
+            logo.setIcon(new ImageIcon(image.getScaledInstance(221, 35, Image.SCALE_SMOOTH)));
+            return;
+        }
+
+        logo.setText("SIGMA PROD");
+        logo.setForeground(Color.WHITE);
+        logo.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 27));
+        logo.setToolTipText("Place the historical logo at ~/.sigma-jello-bootstrap/logo.png or src/main/resources/logo.png");
+    }
+
+    private Image loadLogoImage() {
+        try {
+            URL bundled = BootstrapFrame.class.getResource("/logo.png");
+            if (bundled != null) {
+                return ImageIO.read(bundled);
+            }
+            File external = new File(new File(System.getProperty("user.home"), ".sigma-jello-bootstrap"), "logo.png");
+            if (external.isFile()) {
+                return ImageIO.read(external);
+            }
+        } catch (IOException ignored) {
+            // Fall back to text so the launcher remains usable without historical artwork.
+        }
+        return null;
     }
 
     private LauncherTarget selectedTarget() {
@@ -100,6 +150,9 @@ public final class BootstrapFrame extends JFrame {
     }
 
     private void refreshBuilds() {
+        if (preparingLaunch || isClientRunning()) {
+            return;
+        }
         final LauncherTarget target = selectedTarget();
         selectedBuild = null;
         availableBuilds = null;
@@ -115,7 +168,7 @@ public final class BootstrapFrame extends JFrame {
 
             @Override
             protected void done() {
-                if (target != selectedTarget()) {
+                if (target != selectedTarget() || preparingLaunch || isClientRunning()) {
                     return;
                 }
                 try {
@@ -137,6 +190,9 @@ public final class BootstrapFrame extends JFrame {
     }
 
     private void chooseHistoricalBuild() {
+        if (preparingLaunch || isClientRunning()) {
+            return;
+        }
         List<BuildInfo> builds = availableBuilds;
         if (builds == null || builds.isEmpty()) {
             return;
@@ -159,6 +215,10 @@ public final class BootstrapFrame extends JFrame {
     }
 
     private void updateSelectedBuildStatus() {
+        if (isClientRunning()) {
+            status.setText("Client is running");
+            return;
+        }
         BuildInfo build = selectedBuild;
         if (build == null) {
             status.setText("Select version and play!");
@@ -172,65 +232,121 @@ public final class BootstrapFrame extends JFrame {
 
     private void launchSelectedBuild() {
         final BuildInfo build = selectedBuild;
-        if (build == null) {
+        if (build == null || preparingLaunch || isClientRunning()) {
             return;
         }
 
-        setLaunchState(true);
+        preparingLaunch = true;
+        setPreparingState(true);
         progressBar.setProgress(0);
         status.setText("Preparing " + build.getShortCommit());
 
-        new SwingWorker<Void, Void>() {
+        new SwingWorker<Process, Void>() {
             @Override
-            protected Void doInBackground() throws Exception {
+            protected Process doInBackground() throws Exception {
                 File packageRoot = installer.install(build, new BuildInstaller.ProgressListener() {
                     @Override
                     public void onProgress(final int percent, final String text) {
-                        javax.swing.SwingUtilities.invokeLater(new Runnable() {
+                        SwingUtilities.invokeLater(new Runnable() {
                             @Override
                             public void run() {
-                                progressBar.setProgress(percent);
+                                progressBar.setProgress(percent * 45 / 100);
                                 status.setText(text);
                             }
                         });
                     }
                 });
 
-                javax.swing.SwingUtilities.invokeLater(new Runnable() {
+                return launcher.launch(build, packageRoot, new ClientLauncher.ProgressListener() {
                     @Override
-                    public void run() {
-                        progressBar.setProgress(100);
-                        status.setText("Launching " + build.getShortCommit());
+                    public void onProgress(final int percent, final String text) {
+                        SwingUtilities.invokeLater(new Runnable() {
+                            @Override
+                            public void run() {
+                                progressBar.setProgress(45 + percent * 55 / 100);
+                                status.setText(text);
+                            }
+                        });
                     }
                 });
-                launcher.launch(build, packageRoot);
-                return null;
             }
 
             @Override
             protected void done() {
+                preparingLaunch = false;
                 try {
-                    get();
-                    status.setText("Client launched " + build.getShortCommit());
+                    Process process = get();
+                    runningProcess = process;
+                    setPreparingState(false);
+                    setRunningState(true);
+                    status.setText("Client running " + build.getShortCommit());
+                    watchProcess(process, build);
                 } catch (Exception error) {
+                    runningProcess = null;
+                    setPreparingState(false);
+                    setRunningState(false);
                     status.setText("Launch failed");
                     showError("Could not launch " + build.getShortCommit(), error);
-                } finally {
-                    setLaunchState(false);
                     updateSelectedBuildStatus();
                 }
             }
         }.execute();
     }
 
-    private void setLaunchState(boolean launching) {
-        targetBox.setVisible(!launching);
-        historyButton.setVisible(!launching);
-        playButton.setVisible(!launching);
-        progressBar.setVisible(launching);
-        targetBox.setEnabled(!launching);
-        historyButton.setEnabled(!launching && availableBuilds != null && availableBuilds.size() > 1);
-        playButton.setEnabled(!launching && selectedBuild != null);
+    private void watchProcess(final Process process, final BuildInfo build) {
+        Thread waiter = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                int exitCode = -1;
+                try {
+                    exitCode = process.waitFor();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                final int finalExitCode = exitCode;
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (runningProcess == process) {
+                            runningProcess = null;
+                        }
+                        setRunningState(false);
+                        status.setText("Client exited " + finalExitCode);
+                        updateSelectedBuildStatus();
+                    }
+                });
+            }
+        }, "sigma-client-waiter-" + build.getShortCommit());
+        waiter.setDaemon(true);
+        waiter.start();
+    }
+
+    private boolean isClientRunning() {
+        Process process = runningProcess;
+        if (process == null) {
+            return false;
+        }
+        try {
+            process.exitValue();
+            return false;
+        } catch (IllegalThreadStateException running) {
+            return true;
+        }
+    }
+
+    private void setPreparingState(boolean preparing) {
+        targetBox.setVisible(!preparing);
+        settingsButton.setVisible(!preparing);
+        historyButton.setVisible(!preparing);
+        playButton.setVisible(!preparing);
+        progressBar.setVisible(preparing);
+    }
+
+    private void setRunningState(boolean running) {
+        targetBox.setEnabled(!running);
+        settingsButton.setEnabled(true);
+        historyButton.setEnabled(!running && availableBuilds != null && availableBuilds.size() > 1);
+        playButton.setEnabled(!running && selectedBuild != null);
     }
 
     private void showError(String title, Throwable error) {
