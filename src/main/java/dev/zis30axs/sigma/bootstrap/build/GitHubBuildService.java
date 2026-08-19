@@ -2,11 +2,9 @@ package dev.zis30axs.sigma.bootstrap.build;
 
 import dev.zis30axs.sigma.bootstrap.LauncherTarget;
 
-import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -21,7 +19,7 @@ public final class GitHubBuildService {
     private static final Pattern NAME_PATTERN = Pattern.compile("\\\"name\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"");
     private static final Pattern PRERELEASE_PATTERN = Pattern.compile("\\\"prerelease\\\"\\s*:\\s*(true|false)");
     private static final Pattern ASSET_PATTERN = Pattern.compile(
-            "\\{[^{}]*\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"[^{}]*\\\"browser_download_url\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"[^{}]*\\}",
+            "\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+\\.zip(?:\\.sha256)?)\\\".*?\\\"browser_download_url\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"",
             Pattern.DOTALL
     );
 
@@ -48,10 +46,10 @@ public final class GitHubBuildService {
             while (assets.find()) {
                 String assetName = unescape(assets.group(1));
                 String assetUrl = unescape(assets.group(2));
-                if (assetName.endsWith(".zip") && !assetName.endsWith(".zip.sha256")) {
-                    zipUrl = assetUrl;
-                } else if (assetName.endsWith(".zip.sha256")) {
+                if (assetName.endsWith(".zip.sha256")) {
                     checksumUrl = assetUrl;
+                } else if (assetName.endsWith(".zip")) {
+                    zipUrl = assetUrl;
                 }
             }
 
