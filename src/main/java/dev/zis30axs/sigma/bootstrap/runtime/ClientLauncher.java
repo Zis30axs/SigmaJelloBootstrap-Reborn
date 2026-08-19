@@ -2,24 +2,41 @@ package dev.zis30axs.sigma.bootstrap.runtime;
 
 import dev.zis30axs.sigma.bootstrap.LauncherTarget;
 import dev.zis30axs.sigma.bootstrap.build.BuildInfo;
+import dev.zis30axs.sigma.bootstrap.config.LauncherSettings;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 
 public final class ClientLauncher {
-    private final JavaRuntimeResolver javaRuntimeResolver = new JavaRuntimeResolver();
+    public interface ProgressListener {
+        void onProgress(int percent, String status);
+    }
 
-    public Process launch(BuildInfo build, File packageRoot) throws IOException {
+    private final JavaRuntimeManager javaRuntimeManager;
+    private final LegacyAssetsManager legacyAssetsManager;
+
+    public ClientLauncher(LauncherSettings settings) {
+        this.javaRuntimeManager = new JavaRuntimeManager(settings);
+        this.legacyAssetsManager = new LegacyAssetsManager(settings);
+    }
+
+    public Process launch(BuildInfo build, File packageRoot, final ProgressListener listener) throws IOException {
         Properties properties = loadProperties(packageRoot);
         int requiredJava = parseInt(properties.getProperty("java"), build.getTarget().getJavaVersion());
         String mainClass = properties.getProperty("mainClass", "Start");
 
-        File java = javaRuntimeResolver.resolve(requiredJava);
+        listener.onProgress(2, "Checking Java " + requiredJava);
+        File java = javaRuntimeManager.resolveOrInstall(requiredJava, new JavaRuntimeManager.ProgressListener() {
+            @Override
+            public void onProgress(int percent, String status) {
+                listener.onProgress(Math.min(45, percent * 45 / 100), status);
+            }
+        });
+
         File clientJar = new File(packageRoot, "client.jar");
         File libs = new File(packageRoot, "libs");
         if (!clientJar.isFile()) {
@@ -37,45 +54,24 @@ public final class ClientLauncher {
                 .inheritIO();
 
         if (build.getTarget() == LauncherTarget.LEGACY) {
-            File assets = resolveMinecraftAssets();
+            listener.onProgress(46, "Checking 1.16.4 Assets");
+            File assets = legacyAssetsManager.prepare(new LegacyAssetsManager.ProgressListener() {
+                @Override
+                public void onProgress(int percent, String status) {
+                    listener.onProgress(46 + Math.min(48, percent * 48 / 100), status);
+                }
+            });
             processBuilder.environment().put("assetDirectory", assets.getAbsolutePath());
         }
 
-        return processBuilder.start();
+        listener.onProgress(98, "Starting Client");
+        Process process = processBuilder.start();
+        listener.onProgress(100, "Client Started");
+        return process;
     }
 
-    private static File resolveMinecraftAssets() throws IOException {
-        List<File> candidates = new ArrayList<File>();
-
-        String appData = System.getenv("APPDATA");
-        if (appData != null && !appData.trim().isEmpty()) {
-            candidates.add(new File(new File(appData, ".minecraft"), "assets"));
-        }
-
-        String userHome = System.getProperty("user.home");
-        if (userHome != null && !userHome.trim().isEmpty()) {
-            candidates.add(new File(new File(userHome, ".minecraft"), "assets"));
-            candidates.add(new File(new File(new File(userHome, "Library/Application Support"), "minecraft"), "assets"));
-        }
-
-        for (File candidate : candidates) {
-            if (new File(candidate, "indexes").isDirectory()) {
-                return candidate;
-            }
-        }
-
-        StringBuilder checked = new StringBuilder();
-        for (File candidate : candidates) {
-            if (checked.length() > 0) {
-                checked.append(System.lineSeparator());
-            }
-            checked.append(" - ").append(candidate.getAbsolutePath());
-        }
-
-        throw new IOException(
-                "Minecraft assets were not found for Legacy. Checked:" +
-                        System.lineSeparator() + checked
-        );
+    public JavaRuntimeManager getJavaRuntimeManager() {
+        return javaRuntimeManager;
     }
 
     private static Properties loadProperties(File packageRoot) throws IOException {
