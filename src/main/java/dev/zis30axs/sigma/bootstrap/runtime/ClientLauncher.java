@@ -1,5 +1,6 @@
 package dev.zis30axs.sigma.bootstrap.runtime;
 
+import dev.zis30axs.sigma.bootstrap.LauncherTarget;
 import dev.zis30axs.sigma.bootstrap.build.BuildInfo;
 
 import java.io.File;
@@ -7,6 +8,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 public final class ClientLauncher {
@@ -30,10 +32,50 @@ public final class ClientLauncher {
         command.add(buildClasspath(clientJar, libs));
         command.add(mainClass);
 
-        return new ProcessBuilder(command)
+        ProcessBuilder processBuilder = new ProcessBuilder(command)
                 .directory(packageRoot)
-                .inheritIO()
-                .start();
+                .inheritIO();
+
+        if (build.getTarget() == LauncherTarget.LEGACY) {
+            File assets = resolveMinecraftAssets();
+            processBuilder.environment().put("assetDirectory", assets.getAbsolutePath());
+        }
+
+        return processBuilder.start();
+    }
+
+    private static File resolveMinecraftAssets() throws IOException {
+        List<File> candidates = new ArrayList<File>();
+
+        String appData = System.getenv("APPDATA");
+        if (appData != null && !appData.trim().isEmpty()) {
+            candidates.add(new File(new File(appData, ".minecraft"), "assets"));
+        }
+
+        String userHome = System.getProperty("user.home");
+        if (userHome != null && !userHome.trim().isEmpty()) {
+            candidates.add(new File(new File(userHome, ".minecraft"), "assets"));
+            candidates.add(new File(new File(new File(userHome, "Library/Application Support"), "minecraft"), "assets"));
+        }
+
+        for (File candidate : candidates) {
+            if (new File(candidate, "indexes").isDirectory()) {
+                return candidate;
+            }
+        }
+
+        StringBuilder checked = new StringBuilder();
+        for (File candidate : candidates) {
+            if (checked.length() > 0) {
+                checked.append(System.lineSeparator());
+            }
+            checked.append(" - ").append(candidate.getAbsolutePath());
+        }
+
+        throw new IOException(
+                "Minecraft assets were not found for Legacy. Checked:" +
+                        System.lineSeparator() + checked
+        );
     }
 
     private static Properties loadProperties(File packageRoot) throws IOException {
