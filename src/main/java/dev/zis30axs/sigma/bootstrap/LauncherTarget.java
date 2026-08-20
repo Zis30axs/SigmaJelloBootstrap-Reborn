@@ -1,14 +1,10 @@
 package dev.zis30axs.sigma.bootstrap;
 
-/**
- * A launchable Sigma distribution exposed by the bootstrap UI.
- *
- * <p>The repository and Java version are metadata only for now. The download
- * and runtime layers will consume them in a later milestone.</p>
- */
+/** A launchable distribution exposed by the bootstrap UI. */
 public enum LauncherTarget {
     LEGACY("Legacy - Sigma 5.x", "juzibujiji/SigmaClient", 17),
-    MODERN("Modern - Sigma 26.2+", "Zis30axs/Sigma-Modern", 25);
+    MODERN("Modern - Sigma 26.2+", "Zis30axs/Sigma-Modern", 25),
+    HOTINJECTION("HotInjection", "Zis30axs/Sigma-HotInjection", 17);
 
     private final String displayName;
     private final String repository;
