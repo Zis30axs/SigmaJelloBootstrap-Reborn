@@ -35,6 +35,7 @@ public final class BootstrapFrame extends JFrame {
     private final JLabel status = new JLabel("Checking builds...", SwingConstants.RIGHT);
     private final JComboBox<LauncherTarget> targetBox = new JComboBox<LauncherTarget>(LauncherTarget.values());
     private final JelloButton settingsButton = new JelloButton("Settings");
+    private final JelloButton updateLogButton = new JelloButton("UpdateLog");
     private final JelloButton historyButton = new JelloButton("History");
     private final JelloButton playButton = new JelloButton("Play");
     private final JelloProgressBar progressBar = new JelloProgressBar();
@@ -78,7 +79,7 @@ public final class BootstrapFrame extends JFrame {
         });
         content.add(targetBox);
 
-        settingsButton.setBounds(230, 75, 90, 30);
+        settingsButton.setBounds(230, 75, 70, 30);
         settingsButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent event) {
@@ -87,7 +88,16 @@ public final class BootstrapFrame extends JFrame {
         });
         content.add(settingsButton);
 
-        historyButton.setBounds(329, 75, 90, 30);
+        updateLogButton.setBounds(307, 75, 88, 30);
+        updateLogButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                new UpdateLogDialog(BootstrapFrame.this, selectedTarget()).setVisible(true);
+            }
+        });
+        content.add(updateLogButton);
+
+        historyButton.setBounds(402, 75, 65, 30);
         historyButton.setEnabled(false);
         historyButton.addActionListener(new ActionListener() {
             @Override
@@ -97,7 +107,7 @@ public final class BootstrapFrame extends JFrame {
         });
         content.add(historyButton);
 
-        playButton.setBounds(428, 75, 127, 30);
+        playButton.setBounds(474, 75, 81, 30);
         playButton.setEnabled(false);
         playButton.addActionListener(new ActionListener() {
             @Override
@@ -337,6 +347,7 @@ public final class BootstrapFrame extends JFrame {
     private void setPreparingState(boolean preparing) {
         targetBox.setVisible(!preparing);
         settingsButton.setVisible(!preparing);
+        updateLogButton.setVisible(!preparing);
         historyButton.setVisible(!preparing);
         playButton.setVisible(!preparing);
         progressBar.setVisible(preparing);
@@ -345,6 +356,7 @@ public final class BootstrapFrame extends JFrame {
     private void setRunningState(boolean running) {
         targetBox.setEnabled(!running);
         settingsButton.setEnabled(true);
+        updateLogButton.setEnabled(true);
         historyButton.setEnabled(!running && availableBuilds != null && availableBuilds.size() > 1);
         playButton.setEnabled(!running && selectedBuild != null);
     }
