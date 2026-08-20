@@ -15,6 +15,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -54,7 +55,31 @@ public final class JavaRuntimeManager {
             }
         }
 
-        return installTemurin(major, listener);
+        return installTemurin(major, "jre", null, listener);
+    }
+
+    /** Resolve a full JDK containing the requested module, downloading one when allowed. */
+    public File resolveOrInstallJdk(int major, String requiredModule, ProgressListener listener) throws IOException {
+        String configured = settings.getJavaPath(major);
+        if (!configured.isEmpty()) {
+            File java = normalizeJavaPath(new File(configured));
+            if (java.isFile() && resolver.majorVersion(java) == major && hasJdkModule(java, requiredModule)) {
+                return java;
+            }
+        }
+
+        List<File> candidates = resolver.findAll(major);
+        for (File candidate : candidates) {
+            if (hasJdkModule(candidate, requiredModule)) {
+                return candidate;
+            }
+        }
+
+        if (!settings.isAutoDownloadJava()) {
+            throw new IOException("JDK " + major + " with module " + requiredModule
+                    + " was not found. Select a full JDK in Settings or enable automatic Java download.");
+        }
+        return installTemurin(major, "jdk", requiredModule, listener);
     }
 
     public void rememberJava(int major, File selected) throws IOException {
@@ -70,14 +95,16 @@ public final class JavaRuntimeManager {
         settings.save();
     }
 
-    private File installTemurin(int major, ProgressListener listener) throws IOException {
+    private File installTemurin(int major, String imageType, String requiredModule,
+                                ProgressListener listener) throws IOException {
         if (!isWindows()) {
             throw new IOException("Automatic Java download is currently implemented for Windows x64 only. Select Java manually in Settings on this OS.");
         }
 
-        File runtimeDir = new File(root, "temurin-" + major + "-windows-x64");
+        File runtimeDir = new File(root, "temurin-" + imageType + "-" + major + "-windows-x64");
         File existing = locateJava(runtimeDir);
-        if (existing != null && resolver.majorVersion(existing) == major) {
+        if (existing != null && resolver.majorVersion(existing) == major
+                && (requiredModule == null || hasJdkModule(existing, requiredModule))) {
             return existing;
         }
 
@@ -87,7 +114,7 @@ public final class JavaRuntimeManager {
 
         listener.onProgress(2, "Finding Java " + major);
         String api = "https://api.adoptium.net/v3/assets/latest/" + major
-                + "/hotspot?architecture=x64&image_type=jre&os=windows&vendor=eclipse";
+                + "/hotspot?architecture=x64&image_type=" + imageType + "&os=windows&vendor=eclipse";
         String json = readText(api, "application/json");
         String link = find(LINK_PATTERN, json);
         String checksum = find(CHECKSUM_PATTERN, json);
@@ -109,8 +136,20 @@ public final class JavaRuntimeManager {
         if (java == null || resolver.majorVersion(java) != major) {
             throw new IOException("Downloaded Java " + major + " runtime could not be located after extraction.");
         }
+        if (requiredModule != null && !hasJdkModule(java, requiredModule)) {
+            throw new IOException("Downloaded JDK " + major + " does not contain module " + requiredModule + ".");
+        }
         listener.onProgress(100, "Java " + major + " ready");
         return java;
+    }
+
+    private static boolean hasJdkModule(File javaExecutable, String module) {
+        if (module == null || module.trim().isEmpty()) {
+            return true;
+        }
+        File bin = javaExecutable.getParentFile();
+        File javaHome = bin == null ? null : bin.getParentFile();
+        return javaHome != null && new File(new File(javaHome, "jmods"), module + ".jmod").isFile();
     }
 
     private static File normalizeJavaPath(File selected) {
