@@ -34,9 +34,11 @@ public final class LegacyAssetsManager {
     private static final Pattern OBJECT_PATTERN = Pattern.compile("\\\"hash\\\"\\s*:\\s*\\\"([0-9a-f]{40})\\\"\\s*,\\s*\\\"size\\\"\\s*:\\s*(\\d+)");
 
     private final LauncherSettings settings;
+    private final DownloadSourceRouter sourceRouter;
 
     public LegacyAssetsManager(LauncherSettings settings) {
         this.settings = settings;
+        this.sourceRouter = new DownloadSourceRouter(settings);
     }
 
     public File prepare(ProgressListener listener) throws IOException {
@@ -49,7 +51,7 @@ public final class LegacyAssetsManager {
             return assets;
         }
 
-        listener.onProgress(1, "Checking 1.16.4 assets");
+        listener.onProgress(1, "Checking Assets via " + sourceRouter.describeEffectiveMode());
         String versionJson = readVersionMetadata();
         Matcher assetMatcher = ASSET_INDEX_PATTERN.matcher(versionJson);
         if (!assetMatcher.find()) {
@@ -63,7 +65,7 @@ public final class LegacyAssetsManager {
             throw new IOException("Could not parse Minecraft 1.16.4 asset index metadata.");
         }
 
-        String indexJson = readText(assetUrl, "application/json");
+        String indexJson = readTextCandidates(sourceRouter.candidates(assetUrl), "application/json");
         File indexes = new File(assets, "indexes");
         if (!indexes.exists() && !indexes.mkdirs()) {
             throw new IOException("Could not create assets index directory: " + indexes);
@@ -82,8 +84,8 @@ public final class LegacyAssetsManager {
                 if (!parent.exists() && !parent.mkdirs()) {
                     throw new IOException("Could not create asset directory: " + parent);
                 }
-                String source = "https://resources.download.minecraft.net/" + object.hash.substring(0, 2) + "/" + object.hash;
-                download(source, target);
+                String official = "https://resources.download.minecraft.net/" + object.hash.substring(0, 2) + "/" + object.hash;
+                downloadCandidates(sourceRouter.candidates(official), target);
                 if (!isValid(target, object.hash, object.size)) {
                     throw new IOException("Asset verification failed: " + object.hash);
                 }
@@ -98,8 +100,8 @@ public final class LegacyAssetsManager {
         return assets;
     }
 
-    private static String readVersionMetadata() throws IOException {
-        String manifest = readText(VERSION_MANIFEST, "application/json");
+    private String readVersionMetadata() throws IOException {
+        String manifest = readTextCandidates(sourceRouter.candidates(VERSION_MANIFEST), "application/json");
         String marker = "\"id\":\"" + VERSION + "\"";
         int index = manifest.indexOf(marker);
         if (index < 0) {
@@ -107,7 +109,7 @@ public final class LegacyAssetsManager {
             index = manifest.indexOf(marker);
         }
         if (index < 0) {
-            throw new IOException("Minecraft " + VERSION + " was not found in Mojang's version manifest.");
+            throw new IOException("Minecraft " + VERSION + " was not found in the version manifest.");
         }
         int end = Math.min(manifest.length(), index + 1200);
         String window = manifest.substring(index, end);
@@ -115,7 +117,7 @@ public final class LegacyAssetsManager {
         if (versionUrl == null) {
             throw new IOException("Could not locate Minecraft " + VERSION + " metadata URL.");
         }
-        return readText(versionUrl, "application/json");
+        return readTextCandidates(sourceRouter.candidates(versionUrl), "application/json");
     }
 
     private static List<AssetObject> parseObjects(String json) {
@@ -158,6 +160,22 @@ public final class LegacyAssetsManager {
         }
     }
 
+    private static void downloadCandidates(List<String> sources, File target) throws IOException {
+        IOException last = null;
+        for (String source : sources) {
+            try {
+                download(source, target);
+                return;
+            } catch (IOException error) {
+                last = error;
+                if (target.isFile() && !target.delete()) {
+                    target.deleteOnExit();
+                }
+            }
+        }
+        throw last == null ? new IOException("No asset download source is available.") : last;
+    }
+
     private static void download(String source, File target) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(source).openConnection();
         connection.setConnectTimeout(10000);
@@ -167,7 +185,7 @@ public final class LegacyAssetsManager {
         try {
             int code = connection.getResponseCode();
             if (code < 200 || code >= 300) {
-                throw new IOException("Asset download failed with HTTP " + code);
+                throw new IOException("Asset download failed with HTTP " + code + " from " + host(source));
             }
             InputStream input = new BufferedInputStream(connection.getInputStream());
             BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(target));
@@ -189,6 +207,18 @@ public final class LegacyAssetsManager {
         }
     }
 
+    private static String readTextCandidates(List<String> sources, String accept) throws IOException {
+        IOException last = null;
+        for (String source : sources) {
+            try {
+                return readText(source, accept);
+            } catch (IOException error) {
+                last = error;
+            }
+        }
+        throw last == null ? new IOException("No metadata source is available.") : last;
+    }
+
     private static String readText(String source, String accept) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(source).openConnection();
         connection.setConnectTimeout(10000);
@@ -198,7 +228,7 @@ public final class LegacyAssetsManager {
         try {
             int code = connection.getResponseCode();
             if (code < 200 || code >= 300) {
-                throw new IOException("Metadata request failed with HTTP " + code);
+                throw new IOException("Metadata request failed with HTTP " + code + " from " + host(source));
             }
             InputStream input = connection.getInputStream();
             try {
@@ -246,6 +276,14 @@ public final class LegacyAssetsManager {
             return hex.toString();
         } catch (NoSuchAlgorithmException impossible) {
             throw new IOException("SHA-1 is unavailable", impossible);
+        }
+    }
+
+    private static String host(String source) {
+        try {
+            return new URL(source).getHost();
+        } catch (Exception ignored) {
+            return source;
         }
     }
 
