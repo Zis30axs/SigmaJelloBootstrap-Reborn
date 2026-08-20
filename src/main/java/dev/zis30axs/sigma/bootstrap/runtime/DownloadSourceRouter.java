@@ -55,17 +55,18 @@ public final class DownloadSourceRouter {
 
     public List<String> candidates(String officialUrl) {
         String mirrorUrl = toMirrorUrl(officialUrl);
-        DownloadSourceMode mode = getEffectiveMode();
+        DownloadSourceMode configured = settings.getDownloadSourceMode();
+        DownloadSourceMode effective = getEffectiveMode();
         List<String> result = new ArrayList<String>(2);
 
-        if (mode == DownloadSourceMode.CHINA_MIRROR && mirrorUrl != null) {
+        if (mirrorUrl == null || configured == DownloadSourceMode.OFFICIAL) {
+            result.add(officialUrl);
+        } else if (configured == DownloadSourceMode.CHINA_MIRROR || effective == DownloadSourceMode.CHINA_MIRROR) {
             result.add(mirrorUrl);
             result.add(officialUrl);
         } else {
             result.add(officialUrl);
-            if (mode == DownloadSourceMode.AUTO && mirrorUrl != null) {
-                result.add(mirrorUrl);
-            }
+            result.add(mirrorUrl);
         }
 
         return Collections.unmodifiableList(result);
@@ -103,7 +104,8 @@ public final class DownloadSourceRouter {
             connection.setConnectTimeout(2500);
             connection.setReadTimeout(2500);
             connection.setRequestProperty("User-Agent", "SigmaJelloBootstrap-Reborn");
-            if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) {
+            int code = connection.getResponseCode();
+            if (code < 200 || code >= 300) {
                 return null;
             }
 
