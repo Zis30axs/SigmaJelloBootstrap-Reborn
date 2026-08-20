@@ -1,6 +1,11 @@
 name: Release Launcher
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/release.yml
   workflow_dispatch:
     inputs:
       version:
@@ -14,6 +19,8 @@ permissions:
 jobs:
   build-release:
     runs-on: windows-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version || 'v0.1.0' }}
 
     steps:
       - name: Checkout
@@ -33,7 +40,7 @@ jobs:
       - name: Prepare release files
         shell: pwsh
         run: |
-          $version = "${{ inputs.version }}"
+          $version = $env:RELEASE_VERSION
           $jar = Get-ChildItem target -Filter "sigma-jello-bootstrap-reborn-*.jar" | Where-Object { $_.Name -notmatch 'sources|javadoc' } | Select-Object -First 1
           if (-not $jar) { throw "Launcher JAR not found" }
           $out = "target/SigmaJelloBootstrap-Reborn-$version.jar"
@@ -44,7 +51,7 @@ jobs:
       - name: Verify executable manifest
         shell: pwsh
         run: |
-          $version = "${{ inputs.version }}"
+          $version = $env:RELEASE_VERSION
           $jar = "target/SigmaJelloBootstrap-Reborn-$version.jar"
           jar xf $jar META-INF/MANIFEST.MF
           $manifest = Get-Content META-INF/MANIFEST.MF -Raw
@@ -57,7 +64,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $version = "${{ inputs.version }}"
+          $version = $env:RELEASE_VERSION
           gh release create $version `
             "target/SigmaJelloBootstrap-Reborn-$version.jar" `
             "target/SigmaJelloBootstrap-Reborn-$version.jar.sha256" `
