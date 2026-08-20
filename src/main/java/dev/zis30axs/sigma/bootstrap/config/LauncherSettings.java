@@ -9,6 +9,7 @@ import java.util.Properties;
 public final class LauncherSettings {
     private static final String AUTO_JAVA = "java.autoDownload";
     private static final String LEGACY_ASSETS = "legacy.assets.autoRepair";
+    private static final String DOWNLOAD_SOURCE = "download.source";
 
     private final File file;
     private final Properties properties = new Properties();
@@ -66,6 +67,14 @@ public final class LauncherSettings {
 
     public synchronized void setLegacyAssetsAutoRepair(boolean enabled) {
         properties.setProperty(LEGACY_ASSETS, Boolean.toString(enabled));
+    }
+
+    public synchronized DownloadSourceMode getDownloadSourceMode() {
+        return DownloadSourceMode.fromProperty(properties.getProperty(DOWNLOAD_SOURCE));
+    }
+
+    public synchronized void setDownloadSourceMode(DownloadSourceMode mode) {
+        properties.setProperty(DOWNLOAD_SOURCE, (mode == null ? DownloadSourceMode.AUTO : mode).name());
     }
 
     public synchronized String getJavaPath(int major) {
