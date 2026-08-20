@@ -1,0 +1,66 @@
+name: Release Launcher
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, for example v0.1.0
+        required: true
+        default: v0.1.0
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build launcher
+        shell: pwsh
+        run: mvn -B -DskipTests clean package
+
+      - name: Prepare release files
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          $jar = Get-ChildItem target -Filter "sigma-jello-bootstrap-reborn-*.jar" | Where-Object { $_.Name -notmatch 'sources|javadoc' } | Select-Object -First 1
+          if (-not $jar) { throw "Launcher JAR not found" }
+          $out = "target/SigmaJelloBootstrap-Reborn-$version.jar"
+          Copy-Item $jar.FullName $out
+          $hash = (Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  SigmaJelloBootstrap-Reborn-$version.jar" | Set-Content -Encoding ascii "$out.sha256"
+
+      - name: Verify executable manifest
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          $jar = "target/SigmaJelloBootstrap-Reborn-$version.jar"
+          jar xf $jar META-INF/MANIFEST.MF
+          $manifest = Get-Content META-INF/MANIFEST.MF -Raw
+          if ($manifest -notmatch 'Main-Class: dev\.zis30axs\.sigma\.bootstrap\.Main') {
+            throw "Executable Main-Class is missing from manifest"
+          }
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}"
+          gh release create $version `
+            "target/SigmaJelloBootstrap-Reborn-$version.jar" `
+            "target/SigmaJelloBootstrap-Reborn-$version.jar.sha256" `
+            --target $env:GITHUB_SHA `
+            --title "SigmaJelloBootstrap-Reborn $version" `
+            --notes "First packaged launcher release with Legacy, Modern, and HotInjection targets. Run with: java -jar SigmaJelloBootstrap-Reborn-$version.jar"
