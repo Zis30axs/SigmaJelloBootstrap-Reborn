@@ -27,8 +27,12 @@ public final class ClientLauncher {
     public Process launch(BuildInfo build, File packageRoot, final ProgressListener listener) throws IOException {
         Properties properties = loadProperties(packageRoot);
         int requiredJava = parseInt(properties.getProperty("java"), build.getTarget().getJavaVersion());
-        String mainClass = properties.getProperty("mainClass", "Start");
 
+        if (build.getTarget() == LauncherTarget.HOTINJECTION) {
+            return launchHotInjection(build, packageRoot, requiredJava, listener);
+        }
+
+        String mainClass = properties.getProperty("mainClass", "Start");
         listener.onProgress(2, "Checking Java " + requiredJava);
         File java = javaRuntimeManager.resolveOrInstall(requiredJava, new JavaRuntimeManager.ProgressListener() {
             @Override
@@ -67,6 +71,38 @@ public final class ClientLauncher {
         listener.onProgress(98, "Starting Client");
         Process process = processBuilder.start();
         listener.onProgress(100, "Client Started");
+        return process;
+    }
+
+    private Process launchHotInjection(BuildInfo build, File packageRoot, int requiredJava,
+                                       final ProgressListener listener) throws IOException {
+        listener.onProgress(2, "Checking JDK " + requiredJava);
+        File java = javaRuntimeManager.resolveOrInstallJdk(requiredJava, "jdk.attach",
+                new JavaRuntimeManager.ProgressListener() {
+                    @Override
+                    public void onProgress(int percent, String status) {
+                        listener.onProgress(Math.min(90, percent * 90 / 100), status);
+                    }
+                });
+
+        File hostJar = new File(packageRoot, "client.jar");
+        if (!hostJar.isFile()) {
+            throw new IOException("HotInjection host JAR is missing from " + packageRoot);
+        }
+
+        List<String> command = new ArrayList<String>();
+        command.add(java.getAbsolutePath());
+        command.add("--add-modules");
+        command.add("jdk.attach");
+        command.add("-jar");
+        command.add(hostJar.getAbsolutePath());
+
+        listener.onProgress(98, "Starting HotInjection");
+        Process process = new ProcessBuilder(command)
+                .directory(packageRoot)
+                .inheritIO()
+                .start();
+        listener.onProgress(100, "HotInjection Started");
         return process;
     }
 
