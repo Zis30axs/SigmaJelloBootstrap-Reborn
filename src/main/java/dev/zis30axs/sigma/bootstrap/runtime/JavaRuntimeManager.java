@@ -108,7 +108,13 @@ public final class JavaRuntimeManager {
             return existing;
         }
 
-        if (!runtimeDir.exists() && !runtimeDir.mkdirs()) {
+        // Never install over an invalid/stale runtime tree. Older or partial
+        // extractions can otherwise remain alongside the new Temurin folder and
+        // locateJava() may keep returning the broken copy forever.
+        if (runtimeDir.exists()) {
+            deleteRecursively(runtimeDir);
+        }
+        if (!runtimeDir.mkdirs() && !runtimeDir.isDirectory()) {
             throw new IOException("Could not create runtime directory: " + runtimeDir);
         }
 
@@ -133,8 +139,15 @@ public final class JavaRuntimeManager {
         listener.onProgress(88, "Installing Java " + major);
         unzip(archive, runtimeDir);
         File java = locateJava(runtimeDir);
-        if (java == null || resolver.majorVersion(java) != major) {
-            throw new IOException("Downloaded Java " + major + " runtime could not be located after extraction.");
+        if (java == null) {
+            throw new IOException("Downloaded Java " + major
+                    + " executable was not found after extraction in " + runtimeDir + ".");
+        }
+        int detectedMajor = resolver.majorVersion(java);
+        if (detectedMajor != major) {
+            throw new IOException("Downloaded Java " + major
+                    + " executable failed version validation at " + java
+                    + " (detected version " + detectedMajor + ").");
         }
         if (requiredModule != null && !hasJdkModule(java, requiredModule)) {
             throw new IOException("Downloaded JDK " + major + " does not contain module " + requiredModule + ".");
@@ -157,6 +170,20 @@ public final class JavaRuntimeManager {
             return new File(new File(selected, "bin"), isWindows() ? "javaw.exe" : "java");
         }
         return selected;
+    }
+
+    private static void deleteRecursively(File file) throws IOException {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursively(child);
+                }
+            }
+        }
+        if (file.exists() && !file.delete()) {
+            throw new IOException("Could not remove stale runtime path: " + file);
+        }
     }
 
     private static File locateJava(File root) {
