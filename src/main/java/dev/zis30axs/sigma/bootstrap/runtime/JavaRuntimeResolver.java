@@ -100,6 +100,20 @@ public final class JavaRuntimeResolver {
     }
 
     public int majorVersion(File javaExecutable) {
+        File probe = versionProbe(javaExecutable);
+        int detected = readMajorVersion(probe);
+        if (detected >= 0 || probe.equals(javaExecutable)) {
+            return detected;
+        }
+
+        // Fall back to the originally selected launcher if the console probe
+        // unexpectedly fails. This preserves the previous behavior for unusual
+        // Java distributions while keeping java.exe as the reliable Windows
+        // version probe for normal javaw.exe launches.
+        return readMajorVersion(javaExecutable);
+    }
+
+    private int readMajorVersion(File javaExecutable) {
         Process process = null;
         try {
             process = new ProcessBuilder(javaExecutable.getAbsolutePath(), "-version")
@@ -125,6 +139,23 @@ public final class JavaRuntimeResolver {
             }
         }
         return -1;
+    }
+
+    private static File versionProbe(File javaExecutable) {
+        if (!isWindows() || javaExecutable == null) {
+            return javaExecutable;
+        }
+
+        if ("javaw.exe".equalsIgnoreCase(javaExecutable.getName())) {
+            File parent = javaExecutable.getParentFile();
+            if (parent != null) {
+                File consoleJava = new File(parent, "java.exe");
+                if (consoleJava.isFile()) {
+                    return consoleJava;
+                }
+            }
+        }
+        return javaExecutable;
     }
 
     private static int parseMajor(String version) {
