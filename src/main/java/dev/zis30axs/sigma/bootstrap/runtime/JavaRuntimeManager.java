@@ -27,7 +27,7 @@ public final class JavaRuntimeManager {
         void onProgress(int percent, String status);
     }
 
-    private static final Pattern LINK_PATTERN = Pattern.compile("\\\"link\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+    private static final Pattern PACKAGE_PATTERN = Pattern.compile("\\\"package\\\"\\s*:\\s*\\\\{(.*?)\\\\}", Pattern.DOTALL);
     private static final Pattern CHECKSUM_PATTERN = Pattern.compile("\\\"checksum\\\"\\s*:\\s*\\\"([0-9a-fA-F]{64})\\\"");
 
     private final LauncherSettings settings;
