@@ -119,21 +119,32 @@ public final class JavaRuntimeManager {
         }
 
         listener.onProgress(2, "Finding Java " + major);
-        String api = "https://api.adoptium.net/v3/assets/latest/" + major
+        String metadataApi = "https://api.adoptium.net/v3/assets/latest/" + major
                 + "/hotspot?architecture=x64&image_type=" + imageType + "&os=windows&vendor=eclipse";
-        String json = readText(api, "application/json");
-        String link = find(LINK_PATTERN, json);
-        String checksum = find(CHECKSUM_PATTERN, json);
-        if (link == null || checksum == null) {
-            throw new IOException("Could not parse Temurin Java " + major + " download metadata.");
+        String json = readText(metadataApi, "application/json");
+        String packageJson = find(PACKAGE_PATTERN, json);
+        String checksum = packageJson == null ? null : find(CHECKSUM_PATTERN, packageJson);
+        if (checksum == null) {
+            throw new IOException("Could not parse Temurin Java " + major + " package checksum metadata.");
         }
 
+        // Use Adoptium's stable binary endpoint instead of extracting the first
+        // generic \"link\" field from the metadata response. Windows metadata
+        // can also contain an MSI installer, and relying on JSON field order can
+        // accidentally select a non-ZIP asset.
+        String binaryApi = "https://api.adoptium.net/v3/binary/latest/" + major
+                + "/ga/windows/x64/" + imageType + "/hotspot/normal/eclipse?project=jdk";
+
         File archive = new File(runtimeDir, "runtime.zip");
-        download(unescape(link), archive, listener);
+        download(binaryApi, archive, listener);
         listener.onProgress(82, "Verifying Java " + major);
         String actual = sha256(archive);
         if (!checksum.equalsIgnoreCase(actual)) {
             throw new IOException("Java runtime SHA-256 mismatch.");
+        }
+        if (!isZipArchive(archive)) {
+            throw new IOException("Downloaded Temurin Java " + major
+                    + " package is not a ZIP archive (" + archive.length() + " bytes).");
         }
 
         listener.onProgress(88, "Installing Java " + major);
@@ -268,6 +279,22 @@ public final class JavaRuntimeManager {
             }
         } finally {
             connection.disconnect();
+        }
+    }
+
+    private static boolean isZipArchive(File archive) throws IOException {
+        InputStream input = new BufferedInputStream(new FileInputStream(archive));
+        try {
+            byte[] magic = new byte[4];
+            int read = input.read(magic);
+            if (read < 4 || magic[0] != 'P' || magic[1] != 'K') {
+                return false;
+            }
+            return (magic[2] == 3 && magic[3] == 4)
+                    || (magic[2] == 5 && magic[3] == 6)
+                    || (magic[2] == 7 && magic[3] == 8);
+        } finally {
+            input.close();
         }
     }
 
